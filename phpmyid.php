@@ -319,11 +319,17 @@ function authorize_mode () {
 	$uid = uniqid(mt_rand(1,9));
 	$_SESSION['uniqid'] = $uid;
 
+	$_SESSION['login_url'] = $_SESSION['post_auth_url']; // this is for SMF to get back here
+	header('Location: http://www.openlierox.net/forum/index.php?action=login2');
+
+/*
+TODO
 	debug('Prompting user to log in. Stale? ' . $stale);
 	header('HTTP/1.0 401 Unauthorized');
 	header(sprintf('WWW-Authenticate: Digest qop="auth-int, auth", realm="%s", domain="%s", nonce="%s", opaque="%s", stale="%s", algorithm="MD5"', $profile['auth_realm'], $profile['auth_domain'], $uid, md5($profile['auth_realm']), $stale ? 'true' : 'false'));
 	$q = strpos($_SESSION['cancel_auth_url'], '?') ? '&' : '?';
 	wrap_refresh($_SESSION['cancel_auth_url'] . $q . 'openid.mode=cancel');
+	*/
 }
 
 

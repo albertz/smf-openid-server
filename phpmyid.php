@@ -198,6 +198,59 @@ function associate_mode () {
 	wrap_kv($keys);
 }
 
+function lxa_logged_in() {
+	global $wgAuth, $smf_settings, $smf_map;
+
+	$ID_MEMBER = 0;
+
+	if (isset($_COOKIE[$smf_settings['cookiename']]))
+	{
+		$_COOKIE[$smf_settings['cookiename']] = stripslashes($_COOKIE[$smf_settings['cookiename']]);
+
+		// Fix a security hole in PHP 4.3.9 and below...
+		if (preg_match('~^a:[34]:\{i:0;(i:\d{1,6}|s:[1-8]:"\d{1,8}");i:1;s:(0|40):"([a-fA-F0-9]{40})?";i:2;[id]:\d{1,14};(i:3;i:\d;)?\}$~', $_COOKIE[$smf_settings['cookiename']]) == 1)
+		{
+			list ($ID_MEMBER, $password) = @unserialize($_COOKIE[$smf_settings['cookiename']]);
+			$ID_MEMBER = !empty($ID_MEMBER) && strlen($password) > 0 ? (int) $ID_MEMBER : 0;
+		}
+	}
+
+	// Only load this stuff if the user isn't a guest.
+	if ($ID_MEMBER != 0)
+	{
+		$conn = $wgAuth->connect();
+		$request = $wgAuth->query("		
+			SELECT $smf_map[id_member], $smf_map[member_name], $smf_map[email_address], $smf_map[real_name],
+				$smf_map[is_activated], $smf_map[passwd], $smf_map[password_salt]
+			FROM $smf_settings[db_prefix]members
+			WHERE $smf_map[id_member] = '{$ID_MEMBER}'
+			LIMIT 1", $conn);
+
+		$user_settings = mysql_fetch_assoc($request);
+
+		// Did we find 'im?  If not, junk it.
+		if (mysql_num_rows($request) != 0)
+		{
+			// SHA-1 passwords should be 40 characters long.
+			if (strlen($password) == 40)
+				$check = sha1($user_settings[$smf_map['passwd']] . $user_settings[$smf_map['password_salt']]) == $password;
+			else
+				$check = false;
+
+			// Wrong password or not activated - either way, you're going nowhere.
+			$ID_MEMBER = $check && ($user_settings[$smf_map['is_activated']] == 1 || $user_settings[$smf_map['is_activated']] == 11) ? $user_settings[$smf_map['id_member']] : 0;
+		}
+		else
+			$ID_MEMBER = 0;
+
+		mysql_free_result($request);
+	}
+
+	// Log out guests or members with invalid cookie passwords.
+	$lxa_logged_in = $ID_MEMBER != 0;
+	return $lxa_logged_in;
+}
+
 
 /**
  * Perform a user authorization
@@ -208,93 +261,38 @@ function authorize_mode () {
 
 	// this is a user session
 	user_session();
-
+	//print_r($_SESSION);
+	//echo session_id(); exit;
+	
 	if ( isset($_GET["board"]) && $_GET["board"] == "redirect" ) {
-		echo "foo"; exit;
+		/*smf_sessionSetup();
 		$sid = $_SESSION["oid_session"];
-		session_destroy();
+		session_write_close();
 		
 		session_id($sid);
 		session_start();
-		
-		//echo "foo"; exit;
-/*		$lxasession = $_SESSION;
-		smf_sessionSetup();
-		$_SESSION = $_SESSION["oid_session"];*/
-		//print_r($_SESSION);		
+		session_write_close();
+		session_start();*/
 	}
 
 	// the user needs refresh urls in their session to access this mode
-	if (! isset($_SESSION['post_auth_url']) || ! isset($_SESSION['cancel_auth_url'])) {
-		print_r($_SESSION);
+	if (! isset($_SESSION['post_auth_url']) || ! isset($_SESSION['cancel_auth_url']))
 		error_500('You may not access this mode directly.');
-	}
 	
 	$stale = false;
 
-	{
-		global $wgAuth, $smf_settings, $smf_map;
-
-		$ID_MEMBER = 0;
-
-		if (isset($_COOKIE[$smf_settings['cookiename']]))
-		{
-			$_COOKIE[$smf_settings['cookiename']] = stripslashes($_COOKIE[$smf_settings['cookiename']]);
-
-			// Fix a security hole in PHP 4.3.9 and below...
-			if (preg_match('~^a:[34]:\{i:0;(i:\d{1,6}|s:[1-8]:"\d{1,8}");i:1;s:(0|40):"([a-fA-F0-9]{40})?";i:2;[id]:\d{1,14};(i:3;i:\d;)?\}$~', $_COOKIE[$smf_settings['cookiename']]) == 1)
-			{
-				list ($ID_MEMBER, $password) = @unserialize($_COOKIE[$smf_settings['cookiename']]);
-				$ID_MEMBER = !empty($ID_MEMBER) && strlen($password) > 0 ? (int) $ID_MEMBER : 0;
-			}
-		}
-
-		// Only load this stuff if the user isn't a guest.
-		if ($ID_MEMBER != 0)
-		{
-			$conn = $wgAuth->connect();
-			$request = $wgAuth->query("		
-				SELECT $smf_map[id_member], $smf_map[member_name], $smf_map[email_address], $smf_map[real_name],
-					$smf_map[is_activated], $smf_map[passwd], $smf_map[password_salt]
-				FROM $smf_settings[db_prefix]members
-				WHERE $smf_map[id_member] = '{$ID_MEMBER}'
-				LIMIT 1", $conn);
-
-			$user_settings = mysql_fetch_assoc($request);
-
-			// Did we find 'im?  If not, junk it.
-			if (mysql_num_rows($request) != 0)
-			{
-				// SHA-1 passwords should be 40 characters long.
-				if (strlen($password) == 40)
-					$check = sha1($user_settings[$smf_map['passwd']] . $user_settings[$smf_map['password_salt']]) == $password;
-				else
-					$check = false;
-
-				// Wrong password or not activated - either way, you're going nowhere.
-				$ID_MEMBER = $check && ($user_settings[$smf_map['is_activated']] == 1 || $user_settings[$smf_map['is_activated']] == 11) ? $user_settings[$smf_map['id_member']] : 0;
-			}
-			else
-				$ID_MEMBER = 0;
-
-			mysql_free_result($request);
-		}
-
-		// Log out guests or members with invalid cookie passwords.
-		$lxa_logged_in = $ID_MEMBER != 0;		
-	}
 
 	// is the user trying to log in?
-	if ( $lxa_logged_in && $profile['authorized'] === false) {
-		$username = $user_settings[$smf_map['member_name']];
-		//echo $username; exit;
+	if ( lxa_logged_in() && $profile['authorized'] === false) {
+		//$username = $user_settings[$smf_map['member_name']];
+		//echo $username; print_r($_SESSION); echo session_id(); exit;
 		
 		if (isset($_SESSION['uniqid']))
 			unset($_SESSION['uniqid']);
 			
 		debug('Authentication successful');
 		debug('User session is: ' . session_id());
-		$_SESSION['auth_username'] = $username;
+		$_SESSION['auth_username'] = $profile['auth_username']; // $username
 		$_SESSION['auth_url'] = $profile['idp_url'];
 		$profile['authorized'] = true;
 
@@ -314,23 +312,10 @@ function authorize_mode () {
 	$uid = uniqid(mt_rand(1,9));
 	$_SESSION['uniqid'] = $uid;
 
-//	debug("Destroying session: $id");
-		echo "bar"; exit;
 
 	$sid = session_id();
-	session_write_close();
-
-	session_regenerate_id();
-	session_start(); // just for smf_sessionSetup
-
-/*
-	session_id($id);
-	session_start();
-	session_destroy();
-
-	session_id($sid);
-	session_start();
-*/
+	session_regenerate_id(); // just for smf_sessionSetup
+	$_SESSION = array();
 	
 //	$oid_session = $_SESSION;
 	smf_sessionSetup();
@@ -1579,13 +1564,25 @@ function url_descends ( $child, $parent ) {
 function user_session () {
 	global $proto, $profile;
 
+	if(isset($_COOKIE['PHPSESSID'])) {
+		session_decode(smf_sessionRead($_COOKIE['PHPSESSID']));
+		if ( isset($_SESSION["oid_session"]) )
+			$sid = $_SESSION["oid_session"];		
+		session_destroy();
+	}
+
 	session_name('phpMyID_Server');
 	@session_start();
+
+	if(isset($sid)) {
+		session_write_close();		
+		session_id($sid);
+		session_start();
+	}
 	
-	$profile['authorized'] = (isset($_SESSION['auth_username'])
-			    && $_SESSION['auth_username'] == $profile['auth_username'])
-			? true
-			: false;
+	// Debug note: If we get a redirect loop, it is because we don't see that we have already authorized.
+	// Also check existing cookies in your browser, maybe just delete them to be sure.
+	$profile['authorized'] = (isset($_SESSION['auth_username']) && lxa_logged_in()) ? true : false;
 
 	debug('Started user session: ' . session_id() . ' Auth? ' . $profile['authorized']);
 }

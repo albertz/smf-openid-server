@@ -257,7 +257,7 @@ function lxa_logged_in() {
  * @global array $profile
  */
 function authorize_mode () {
-	global $profile;
+	global $profile, $baseurl;
 
 	// this is a user session
 	user_session();
@@ -293,7 +293,7 @@ function authorize_mode () {
 		debug('Authentication successful');
 		debug('User session is: ' . session_id());
 		$_SESSION['auth_username'] = $profile['auth_username']; // $username
-		$_SESSION['auth_url'] = $profile['idp_url'];
+		$_SESSION['auth_url'] = $baseurl; //$profile['idp_url'];
 		$profile['authorized'] = true;
 
 		// return to the refresh url if they get in
@@ -1756,6 +1756,9 @@ $profile['req_url'] = sprintf("%s://%s%s%s",
 		      $port,
 		      $_SERVER["REQUEST_URI"]);
 
+$baseurl = explode("?", $profile['req_url']);
+$baseurl = $baseurl[0];
+
 // Set the default allowance for testing
 if (! array_key_exists('allow_test', $profile))
 	$profile['allow_test'] = false;
@@ -1817,7 +1820,6 @@ if (array_key_exists('microid', $profile)) {
 // Determine if I should add pavatar stuff
 if (array_key_exists('pavatar', $profile))
 	$profile['opt_headers'][] = sprintf('<link rel="pavatar" href="%s" />', $profile['pavatar']);
-
 
 /*
  * Do it

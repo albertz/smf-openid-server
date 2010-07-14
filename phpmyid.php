@@ -12,6 +12,16 @@
  * @version 0.9
  */
 
+	$wgSMFVersion = "2.0";
+	$wgSMFLogin = true;
+	$wgSMFPath = "../forum";
+	$wgSMFAdminGroupName = array('Wiki Admin', 'Global Moderator', 'Administrator');
+
+//$wgCookieDomain = 'www.openlierox.net';
+//$wgCookiePath = '/'; // Optional, defaults to '/'
+	require_once("./Auth_SMF.php");
+	$wgAuth = new Auth_SMF();
+
 
 /**
  * Set a constant to indicate that phpMyID is running
@@ -199,128 +209,137 @@ function authorize_mode () {
 	// this is a user session
 	user_session();
 
-	// the user needs refresh urls in their session to access this mode
-	if (! isset($_SESSION['post_auth_url']) || ! isset($_SESSION['cancel_auth_url']))
-		error_500('You may not access this mode directly.');
-
-	// try to get the digest headers - what a PITA!
-	if (function_exists('apache_request_headers') && ini_get('safe_mode') == false) {
-		$arh = apache_request_headers();
-		$hdr = isset($arh['Authorization']) ? $arh['Authorization'] : null;
-
-	} elseif (isset($_SERVER['PHP_AUTH_DIGEST'])) {
-		$hdr = $_SERVER['PHP_AUTH_DIGEST'];
-
-	} elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
-		$hdr = $_SERVER['HTTP_AUTHORIZATION'];
-
-	} elseif (isset($_ENV['PHP_AUTH_DIGEST'])) {
-		$hdr = $_ENV['PHP_AUTH_DIGEST'];
-
-	} elseif (isset($_SERVER['Authorization'])) {
-		$hdr = $_SERVER['Authorization'];
-
-	} elseif (isset($_REQUEST['auth'])) {
-		$hdr = stripslashes(urldecode($_REQUEST['auth']));
-
-	} else {
-		$hdr = null;
+	if ( isset($_GET["board"]) && $_GET["board"] == "redirect" ) {
+		echo "foo"; exit;
+		$sid = $_SESSION["oid_session"];
+		session_destroy();
+		
+		session_id($sid);
+		session_start();
+		
+		//echo "foo"; exit;
+/*		$lxasession = $_SESSION;
+		smf_sessionSetup();
+		$_SESSION = $_SESSION["oid_session"];*/
+		//print_r($_SESSION);		
 	}
 
-	debug('Authorization header: ' . $hdr);
-	$digest = substr($hdr,0,7) == 'Digest '
-		?  substr($hdr, strpos($hdr, ' ') + 1)
-		: $hdr;
-
+	// the user needs refresh urls in their session to access this mode
+	if (! isset($_SESSION['post_auth_url']) || ! isset($_SESSION['cancel_auth_url'])) {
+		print_r($_SESSION);
+		error_500('You may not access this mode directly.');
+	}
+	
 	$stale = false;
 
+	{
+		global $wgAuth, $smf_settings, $smf_map;
+
+		$ID_MEMBER = 0;
+
+		if (isset($_COOKIE[$smf_settings['cookiename']]))
+		{
+			$_COOKIE[$smf_settings['cookiename']] = stripslashes($_COOKIE[$smf_settings['cookiename']]);
+
+			// Fix a security hole in PHP 4.3.9 and below...
+			if (preg_match('~^a:[34]:\{i:0;(i:\d{1,6}|s:[1-8]:"\d{1,8}");i:1;s:(0|40):"([a-fA-F0-9]{40})?";i:2;[id]:\d{1,14};(i:3;i:\d;)?\}$~', $_COOKIE[$smf_settings['cookiename']]) == 1)
+			{
+				list ($ID_MEMBER, $password) = @unserialize($_COOKIE[$smf_settings['cookiename']]);
+				$ID_MEMBER = !empty($ID_MEMBER) && strlen($password) > 0 ? (int) $ID_MEMBER : 0;
+			}
+		}
+
+		// Only load this stuff if the user isn't a guest.
+		if ($ID_MEMBER != 0)
+		{
+			$conn = $wgAuth->connect();
+			$request = $wgAuth->query("		
+				SELECT $smf_map[id_member], $smf_map[member_name], $smf_map[email_address], $smf_map[real_name],
+					$smf_map[is_activated], $smf_map[passwd], $smf_map[password_salt]
+				FROM $smf_settings[db_prefix]members
+				WHERE $smf_map[id_member] = '{$ID_MEMBER}'
+				LIMIT 1", $conn);
+
+			$user_settings = mysql_fetch_assoc($request);
+
+			// Did we find 'im?  If not, junk it.
+			if (mysql_num_rows($request) != 0)
+			{
+				// SHA-1 passwords should be 40 characters long.
+				if (strlen($password) == 40)
+					$check = sha1($user_settings[$smf_map['passwd']] . $user_settings[$smf_map['password_salt']]) == $password;
+				else
+					$check = false;
+
+				// Wrong password or not activated - either way, you're going nowhere.
+				$ID_MEMBER = $check && ($user_settings[$smf_map['is_activated']] == 1 || $user_settings[$smf_map['is_activated']] == 11) ? $user_settings[$smf_map['id_member']] : 0;
+			}
+			else
+				$ID_MEMBER = 0;
+
+			mysql_free_result($request);
+		}
+
+		// Log out guests or members with invalid cookie passwords.
+		$lxa_logged_in = $ID_MEMBER != 0;		
+	}
+
 	// is the user trying to log in?
-	if (! is_null($digest) && $profile['authorized'] === false) {
-		debug('Digest headers: ' . $digest);
-		$hdr = array();
-
-		// decode the Digest authorization headers
-		preg_match_all('/(\w+)=(?:"([^"]+)"|([^\s,]+))/', $digest, $mtx, PREG_SET_ORDER);
-
-		foreach ($mtx as $m)
-			$hdr[$m[1]] = $m[2] ? $m[2] : $m[3];
-		debug($hdr, 'Parsed digest headers:');
-
-		if (! isset($_SESSION['failures']))
-			$_SESSION['failures'] = 0;
-
-		if (isset($_SESSION['uniqid']) && $hdr['nonce'] != $_SESSION['uniqid'])
-			$stale = true;
-
+	if ( $lxa_logged_in && $profile['authorized'] === false) {
+		$username = $user_settings[$smf_map['member_name']];
+		//echo $username; exit;
+		
 		if (isset($_SESSION['uniqid']))
 			unset($_SESSION['uniqid']);
 			
-		/*******************************************************************
-		START MULTI USER PHPMYOPENID ADDED BY BEN DODSON
-		*******************************************************************/
+		debug('Authentication successful');
+		debug('User session is: ' . session_id());
+		$_SESSION['auth_username'] = $username;
+		$_SESSION['auth_url'] = $profile['idp_url'];
+		$profile['authorized'] = true;
 
-		$phpmyopenid = $profile;
-		$config = './config/' . strtolower($hdr['username']) . '.php';
-		if (file_exists($config)) {
-			require($config);
-		}
-		$profile = array_merge($phpmyopenid,$profile);
+		// return to the refresh url if they get in
+		wrap_redirect($_SESSION['post_auth_url']);
+		exit;
 		
-		/*******************************************************************
-		END MULTI USER PHPMYOPENID ADDED BY BEN DODSON
-		*******************************************************************/
-
-		if ($profile['auth_username'] == $hdr['username'] && ! $stale) {
-
-			// the entity body should always be null in this case
-			$entity_body = '';
-			$a1 = strtolower($profile['auth_password']);
-			$a2 = $hdr['qop'] == 'auth-int'
-				? md5(implode(':', array($_SERVER['REQUEST_METHOD'], $hdr['uri'], md5($entity_body))))
-				: md5(implode(':', array($_SERVER['REQUEST_METHOD'], $hdr['uri'])));
-			$ok = md5(implode(':', array($a1, $hdr['nonce'], $hdr['nc'], $hdr['cnonce'], $hdr['qop'], $a2)));
-
-			// successful login!
-			if ($hdr['response'] == $ok) {
-				debug('Authentication successful');
-				debug('User session is: ' . session_id());
-				$_SESSION['auth_username'] = $hdr['username'];
-				$_SESSION['auth_url'] = $profile['idp_url'];
-				$profile['authorized'] = true;
-
-				// return to the refresh url if they get in
-				wrap_redirect($_SESSION['post_auth_url']);
-
-			// failed login
-			} else {
-				$_SESSION['failures']++;
-				debug('Login failed: ' . $hdr['response'] . ' != ' . $ok);
-				debug('Fail count: ' . $_SESSION['failures']);
-			}
-
-		} elseif ($profile['auth_username'] != $hdr['username']) {
-			$_SESSION['failures']++;
-			debug('Bad username: ' . $hdr['username']);
-			debug('Fail count: ' . $_SESSION['failures']);
-		}
-
+		/*
 		// does this make too many failures?
 		if (strcmp(hexdec($hdr['nc']), 4) > 0 || $_SESSION['failures'] > 4) {
 			debug('Too many password failures');
 			error_get($_SESSION['cancel_auth_url'], 'Too many password failures. Double check your authorization realm. You must restart your browser to try again.');
-		}
-
-	} elseif (isset($_SESSION['uniqid']) && is_null($digest) && $profile['authorized'] === false) {
-		unset($_SESSION['uniqid']);
-		error_500('Missing expected authorization header.');
+		}*/
 	}
 
 	// if we get this far the user is not authorized, so send the headers
 	$uid = uniqid(mt_rand(1,9));
 	$_SESSION['uniqid'] = $uid;
 
-	$_SESSION['login_url'] = $_SESSION['post_auth_url']; // this is for SMF to get back here
-	header('Location: http://www.openlierox.net/forum/index.php?action=login2');
+//	debug("Destroying session: $id");
+		echo "bar"; exit;
+
+	$sid = session_id();
+	session_write_close();
+
+	session_regenerate_id();
+	session_start(); // just for smf_sessionSetup
+
+/*
+	session_id($id);
+	session_start();
+	session_destroy();
+
+	session_id($sid);
+	session_start();
+*/
+	
+//	$oid_session = $_SESSION;
+	smf_sessionSetup();
+	$_SESSION['old_url'] = "http://" . $_SERVER["HTTP_HOST"] . $_SERVER["REQUEST_URI"] . "&board=redirect";
+	$_SESSION['login_url'] = $_SESSION['old_url'];
+	$_SESSION['oid_session'] = $sid;// $oid_session;
+	smf_sessionWrite($_COOKIE['PHPSESSID'], session_encode());
+
+	header('Location: http://www.openlierox.net/forum/index.php?action=login2&sa=salt');
 
 /*
 TODO
@@ -1406,11 +1425,11 @@ function self_check () {
 			error_500("Required extension '$x' is missing.");
 	}
 
-	$extension_b = array('suhosin');
+	/*$extension_b = array('suhosin');
 	foreach ($extension_b as $x) {
 		if (extension_loaded($x) &! $profile["allow_$x"])
 			error_500("phpMyID is not compatible with '$x'");
-	}
+	}*/
 
 	$keys = array('auth_username', 'auth_password');
 	foreach ($keys as $key) {
@@ -1562,7 +1581,7 @@ function user_session () {
 
 	session_name('phpMyID_Server');
 	@session_start();
-
+	
 	$profile['authorized'] = (isset($_SESSION['auth_username'])
 			    && $_SESSION['auth_username'] == $profile['auth_username'])
 			? true

@@ -1,0 +1,9 @@
+OpenID provider based on SMF login
+
+It is based on the code of phpMyOpenID (2.0b) (which is based on pyMyID (0.9)) and the SMF and MediaWiki Integration (1.10).
+
+People:
+phpMyOpenID: Ben Dodson, http://bendodson.com/contact/
+phpMyID: CJ Niemira, siege (at) siege (dot) org
+SMF+MediaWiki: Ryan Wagoner, rswagoner at gmail dot com
+smf-openid-server: Albert Zeyer, albert.zeyer@rwth-aachen.de

@@ -248,7 +248,7 @@ function lxa_logged_in() {
 
 	// Log out guests or members with invalid cookie passwords.
 	$lxa_logged_in = $ID_MEMBER != 0;
-	return $lxa_logged_in;
+	return $lxa_logged_in ? $user_settings[$smf_map['member_name']] : null;
 }
 
 
@@ -261,8 +261,6 @@ function authorize_mode () {
 
 	// this is a user session
 	user_session();
-	//print_r($_SESSION);
-	//echo session_id(); exit;
 	
 	if ( isset($_GET["board"]) && $_GET["board"] == "redirect" ) {
 		/*smf_sessionSetup();
@@ -283,13 +281,8 @@ function authorize_mode () {
 
 
 	// is the user trying to log in?
-	if ( lxa_logged_in() && $profile['authorized'] === false) {
-		//$username = $user_settings[$smf_map['member_name']];
-		//echo $username; print_r($_SESSION); echo session_id(); exit;
-		
-		if (isset($_SESSION['uniqid']))
-			unset($_SESSION['uniqid']);
-			
+	$lxa_logged_in = lxa_logged_in();
+	if ( $lxa_logged_in && $profile['authorized'] === false) {			
 		debug('Authentication successful');
 		debug('User session is: ' . session_id());
 		$_SESSION['auth_username'] = $profile['auth_username']; // $username
@@ -308,16 +301,10 @@ function authorize_mode () {
 		}*/
 	}
 
-	// if we get this far the user is not authorized, so send the headers
-	$uid = uniqid(mt_rand(1,9));
-	$_SESSION['uniqid'] = $uid;
-
-
 	$sid = session_id();
 	session_regenerate_id(); // just for smf_sessionSetup
 	$_SESSION = array();
 	
-//	$oid_session = $_SESSION;
 	smf_sessionSetup();
 	$_SESSION['old_url'] = "http://" . $_SERVER["HTTP_HOST"] . $_SERVER["REQUEST_URI"] . "&board=redirect";
 	$_SESSION['login_url'] = $_SESSION['old_url'];
@@ -325,15 +312,6 @@ function authorize_mode () {
 	smf_sessionWrite($_COOKIE['PHPSESSID'], session_encode());
 
 	header('Location: http://www.openlierox.net/forum/index.php?action=login2&sa=salt');
-
-/*
-TODO
-	debug('Prompting user to log in. Stale? ' . $stale);
-	header('HTTP/1.0 401 Unauthorized');
-	header(sprintf('WWW-Authenticate: Digest qop="auth-int, auth", realm="%s", domain="%s", nonce="%s", opaque="%s", stale="%s", algorithm="MD5"', $profile['auth_realm'], $profile['auth_domain'], $uid, md5($profile['auth_realm']), $stale ? 'true' : 'false'));
-	$q = strpos($_SESSION['cancel_auth_url'], '?') ? '&' : '?';
-	wrap_refresh($_SESSION['cancel_auth_url'] . $q . 'openid.mode=cancel');
-	*/
 }
 
 
@@ -501,8 +479,6 @@ function checkid ( $wait ) {
 		$_SESSION['auth_url'] = null;
 
 		if ($wait) {
-			unset($_SESSION['uniqid']);
-
 			$_SESSION['cancel_auth_url'] = $cancel_url;
 			$_SESSION['post_auth_url'] = $profile['req_url'];
 
@@ -1783,7 +1759,7 @@ if (! array_key_exists('auth_domain', $profile))
 
 // Set a default authentication realm
 if (! array_key_exists('auth_realm', $profile))
-	$profile['auth_realm'] = 'phpMyID';
+	$profile['auth_realm'] = 'SMFmyID';
 
 // Determine the realm for digest authentication - DO NOT OVERRIDE
 $profile['php_realm'] = $profile['auth_realm'] . (ini_get('safe_mode') ? '-' . getmyuid() : '');

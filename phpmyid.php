@@ -195,66 +195,13 @@ function associate_mode () {
 	wrap_kv($keys);
 }
 
-function lxa_logged_in() {
-	global $wgAuth, $smf_settings, $smf_map;
-
-	$ID_MEMBER = 0;
-
-	if (isset($_COOKIE[$smf_settings['cookiename']]))
-	{
-		$_COOKIE[$smf_settings['cookiename']] = stripslashes($_COOKIE[$smf_settings['cookiename']]);
-
-		// Fix a security hole in PHP 4.3.9 and below...
-		if (preg_match('~^a:[34]:\{i:0;(i:\d{1,6}|s:[1-8]:"\d{1,8}");i:1;s:(0|40):"([a-fA-F0-9]{40})?";i:2;[id]:\d{1,14};(i:3;i:\d;)?\}$~', $_COOKIE[$smf_settings['cookiename']]) == 1)
-		{
-			list ($ID_MEMBER, $password) = @unserialize($_COOKIE[$smf_settings['cookiename']]);
-			$ID_MEMBER = !empty($ID_MEMBER) && strlen($password) > 0 ? (int) $ID_MEMBER : 0;
-		}
-	}
-
-	// Only load this stuff if the user isn't a guest.
-	if ($ID_MEMBER != 0)
-	{
-		$conn = $wgAuth->connect();
-		$request = $wgAuth->query("		
-			SELECT $smf_map[id_member], $smf_map[member_name], $smf_map[email_address], $smf_map[real_name],
-				$smf_map[is_activated], $smf_map[passwd], $smf_map[password_salt]
-			FROM $smf_settings[db_prefix]members
-			WHERE $smf_map[id_member] = '{$ID_MEMBER}'
-			LIMIT 1", $conn);
-
-		$user_settings = mysql_fetch_assoc($request);
-
-		// Did we find 'im?  If not, junk it.
-		if (mysql_num_rows($request) != 0)
-		{
-			// SHA-1 passwords should be 40 characters long.
-			if (strlen($password) == 40)
-				$check = sha1($user_settings[$smf_map['passwd']] . $user_settings[$smf_map['password_salt']]) == $password;
-			else
-				$check = false;
-
-			// Wrong password or not activated - either way, you're going nowhere.
-			$ID_MEMBER = $check && ($user_settings[$smf_map['is_activated']] == 1 || $user_settings[$smf_map['is_activated']] == 11) ? $user_settings[$smf_map['id_member']] : 0;
-		}
-		else
-			$ID_MEMBER = 0;
-
-		mysql_free_result($request);
-	}
-
-	// Log out guests or members with invalid cookie passwords.
-	$lxa_logged_in = $ID_MEMBER != 0;
-	return $lxa_logged_in ? $user_settings[$smf_map['member_name']] : null;
-}
-
 
 /**
  * Perform a user authorization
  * @global array $profile
  */
 function authorize_mode () {
-	global $profile, $baseurl;
+	global $profile, $baseurl, $lxa_logged_in;
 
 	// this is a user session
 	user_session();
@@ -278,12 +225,11 @@ function authorize_mode () {
 
 
 	// is the user trying to log in?
-	$lxa_logged_in = lxa_logged_in();
 	if ( $lxa_logged_in && $profile['authorized'] === false) {			
-		debug('Authentication successful');
+		debug('Authentication successful for SMF user: ' . $lxa_logged_in);
 		debug('User session is: ' . session_id());
-		$_SESSION['auth_username'] = $username;
-		$_SESSION['auth_url'] = $baseurl; //$profile['idp_url'];
+		$_SESSION['auth_username'] = $lxa_logged_in;
+		$_SESSION['auth_url'] = $profile['idp_url'];
 		$profile['authorized'] = true;
 
 		// return to the refresh url if they get in
@@ -457,12 +403,15 @@ function checkid ( $wait ) {
 		wrap_redirect($profile['idp_url'] . $q . 'openid.mode=accept');
 	}
 
+	/*
+	TODO: this fails in the beginning where we don't know the identity yet.
+	so what is the meaning of this code?
 	// make sure i am this identifier
 	if ($identity != $profile['idp_url']) {
 		debug("Invalid identity: $identity");
 		debug("IdP URL: " . $profile['idp_url']);
 		error_get($return_to, "Invalid identity: '$identity'");
-	}
+	}*/
 
 	// begin setting up return keys
 	$keys = array(
@@ -470,7 +419,7 @@ function checkid ( $wait ) {
 	);
 
 	// if the user is not logged in, transfer to the authorization mode
-	if ($profile['authorized'] === false || $identity != $_SESSION['auth_url']) {
+	if ($profile['authorized'] === false /* || $identity != $_SESSION['auth_url'] */) {
 		// users can only be logged in to one url at a time
 		$_SESSION['auth_username'] = null;
 		$_SESSION['auth_url'] = null;
@@ -1694,6 +1643,62 @@ ini_set('arg_separator.output', '&');
 self_check();
 
 
+function lxa_logged_in() {
+	global $wgAuth, $smf_settings, $smf_map;
+
+	$ID_MEMBER = 0;
+
+	if (isset($_COOKIE[$smf_settings['cookiename']]))
+	{
+		$_COOKIE[$smf_settings['cookiename']] = stripslashes($_COOKIE[$smf_settings['cookiename']]);
+
+		// Fix a security hole in PHP 4.3.9 and below...
+		if (preg_match('~^a:[34]:\{i:0;(i:\d{1,6}|s:[1-8]:"\d{1,8}");i:1;s:(0|40):"([a-fA-F0-9]{40})?";i:2;[id]:\d{1,14};(i:3;i:\d;)?\}$~', $_COOKIE[$smf_settings['cookiename']]) == 1)
+		{
+			list ($ID_MEMBER, $password) = @unserialize($_COOKIE[$smf_settings['cookiename']]);
+			$ID_MEMBER = !empty($ID_MEMBER) && strlen($password) > 0 ? (int) $ID_MEMBER : 0;
+		}
+	}
+
+	// Only load this stuff if the user isn't a guest.
+	if ($ID_MEMBER != 0)
+	{
+		$conn = $wgAuth->connect();
+		$request = $wgAuth->query("		
+			SELECT $smf_map[id_member], $smf_map[member_name], $smf_map[email_address], $smf_map[real_name],
+				$smf_map[is_activated], $smf_map[passwd], $smf_map[password_salt]
+			FROM $smf_settings[db_prefix]members
+			WHERE $smf_map[id_member] = '{$ID_MEMBER}'
+			LIMIT 1", $conn);
+
+		$user_settings = mysql_fetch_assoc($request);
+
+		// Did we find 'im?  If not, junk it.
+		if (mysql_num_rows($request) != 0)
+		{
+			// SHA-1 passwords should be 40 characters long.
+			if (strlen($password) == 40)
+				$check = sha1($user_settings[$smf_map['passwd']] . $user_settings[$smf_map['password_salt']]) == $password;
+			else
+				$check = false;
+
+			// Wrong password or not activated - either way, you're going nowhere.
+			$ID_MEMBER = $check && ($user_settings[$smf_map['is_activated']] == 1 || $user_settings[$smf_map['is_activated']] == 11) ? $user_settings[$smf_map['id_member']] : 0;
+		}
+		else
+			$ID_MEMBER = 0;
+
+		mysql_free_result($request);
+	}
+
+	// Log out guests or members with invalid cookie passwords.
+	$lxa_logged_in = $ID_MEMBER != 0;
+	return $lxa_logged_in ? $user_settings[$smf_map['member_name']] : null;
+}
+
+$GLOBALS["lxa_logged_in"] = lxa_logged_in();
+
+
 /**
  * Determine the HTTP request port
  * @name $port
@@ -1714,14 +1719,6 @@ $GLOBALS['proto'] = (isset($_SERVER["HTTPS"]) && $_SERVER["HTTPS"] == 'on') ? 'h
 // Set the authorization state - DO NOT OVERRIDE
 $profile['authorized'] = false;
 
-// Set a default IDP URL
-if (! array_key_exists('idp_url', $profile))
-	$profile['idp_url'] = sprintf("%s://%s%s%s",
-			      $proto,
-			      $_SERVER['SERVER_NAME'],
-			      $port,
-			      $_SERVER['PHP_SELF']);
-
 // Determine the requested URL - DO NOT OVERRIDE
 $profile['req_url'] = sprintf("%s://%s%s%s",
 		      $proto,
@@ -1731,6 +1728,15 @@ $profile['req_url'] = sprintf("%s://%s%s%s",
 
 $baseurl = explode("?", $profile['req_url']);
 $baseurl = $baseurl[0];
+
+// Set a default IDP URL
+if (! array_key_exists('idp_url', $profile)) {
+	$profile['idp_url'] = $baseurl;
+	if($lxa_logged_in)
+		$profile["idp_url"] .= "?u=" . urlencode($lxa_logged_in);
+	else if(isset($_GET["id"]))
+		$profile["idp_url"] .= "?u=" . $_GET["u"];		
+}
 
 // Set the default allowance for testing
 if (! array_key_exists('allow_test', $profile))
@@ -1806,5 +1812,6 @@ $run_mode = (isset($_REQUEST['openid_mode'])
 // Run in the determined runmode
 debug("Run mode: $run_mode at: " . time());
 debug($_REQUEST, 'Request params');
+debug("Remote " . $_SERVER["REMOTE_ADDR"] . ", User agent: " . $_SERVER["HTTP_USER_AGENT"]);
 call_user_func($run_mode . '_mode');
 ?>

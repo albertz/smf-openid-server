@@ -16,9 +16,6 @@
 	$wgSMFLogin = true;
 	$wgSMFPath = "../forum";
 	$wgSMFAdminGroupName = array('Wiki Admin', 'Global Moderator', 'Administrator');
-
-//$wgCookieDomain = 'www.openlierox.net';
-//$wgCookiePath = '/'; // Optional, defaults to '/'
 	require_once("./Auth_SMF.php");
 	$wgAuth = new Auth_SMF();
 
@@ -285,7 +282,7 @@ function authorize_mode () {
 	if ( $lxa_logged_in && $profile['authorized'] === false) {			
 		debug('Authentication successful');
 		debug('User session is: ' . session_id());
-		$_SESSION['auth_username'] = $profile['auth_username']; // $username
+		$_SESSION['auth_username'] = $username;
 		$_SESSION['auth_url'] = $baseurl; //$profile['idp_url'];
 		$profile['authorized'] = true;
 
@@ -1342,11 +1339,11 @@ function secret ( $handle ) {
 	session_start();
 	debug('Started session to acquire key: ' . session_id());
 
-	$secret = session_is_registered('shared_secret')
+	$secret = isset($_SESSION['shared_secret'])
 		? base64_decode($_SESSION['shared_secret'])
 		: false;
 
-	$expiration = session_is_registered('expiration')
+	$expiration = isset($_SESSION['expiration'])
 		? $_SESSION['expiration']
 		: null;
 
